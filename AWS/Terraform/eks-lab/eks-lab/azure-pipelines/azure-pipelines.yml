@@ -1,0 +1,52 @@
+# Azure DevOps / VSTS pipeline equivalente ao GitHub Actions.
+# Pré-requisitos:
+#  - Variable group "eks-lab-secrets" com AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, DATADOG_API_KEY (marcar como secret)
+#  - Agent pool com Terraform + AWS CLI + kubectl (o ubuntu-latest hosted já tem AWS CLI e kubectl)
+
+trigger:
+  branches:
+    include: [main]
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: eks-lab-secrets
+  - name: AWS_REGION
+    value: eu-central-1
+
+steps:
+  - task: TerraformInstaller@1
+    inputs:
+      terraformVersion: latest
+
+  - script: |
+      export AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID)
+      export AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY)
+      export AWS_DEFAULT_REGION=$(AWS_REGION)
+      export TF_VAR_datadog_api_key=$(DATADOG_API_KEY)
+      cd terraform/eks
+      terraform init
+      terraform apply -auto-approve
+    displayName: Terraform EKS
+
+  - script: |
+      export AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID)
+      export AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY)
+      export AWS_DEFAULT_REGION=$(AWS_REGION)
+      cd terraform/app-lambda
+      terraform init
+      terraform apply -auto-approve
+    displayName: Terraform Lambda
+
+  - script: |
+      export AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID)
+      export AWS_SECRET_ACCESS_KEY=$(AWS_SECRET_ACCESS_KEY)
+      export AWS_DEFAULT_REGION=$(AWS_REGION)
+      cd terraform/eks
+      aws eks update-kubeconfig --region $(AWS_REGION) --name $(terraform output -raw cluster_name)
+      kubectl apply -f ../../k8s/namespace.yaml
+      kubectl apply -f ../../k8s/whoami.yaml
+      kubectl rollout status deployment/whoami -n demo --timeout=180s
+      kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+    displayName: Deploy whoami

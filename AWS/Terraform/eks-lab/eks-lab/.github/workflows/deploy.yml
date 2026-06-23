@@ -1,0 +1,58 @@
+name: deploy-eks-lab
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: eu-central-1
+
+jobs:
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+
+      # 1) Sobe o cluster EKS + ingress + datadog
+      - name: Terraform EKS
+        working-directory: terraform/eks
+        env:
+          TF_VAR_datadog_api_key: ${{ secrets.DATADOG_API_KEY }}
+        run: |
+          terraform init
+          terraform apply -auto-approve
+
+      # 2) Sobe a app serverless hello-world
+      - name: Terraform Lambda
+        working-directory: terraform/app-lambda
+        run: |
+          terraform init
+          terraform apply -auto-approve
+
+      # 3) Deploya os manifests no cluster
+      - name: Deploy whoami
+        working-directory: terraform/eks
+        run: |
+          aws eks update-kubeconfig --region $AWS_REGION --name $(terraform output -raw cluster_name)
+          kubectl apply -f ../../k8s/namespace.yaml
+          kubectl apply -f ../../k8s/whoami.yaml
+          kubectl rollout status deployment/whoami -n demo --timeout=180s
+
+      - name: Show endpoints
+        working-directory: terraform/eks
+        run: |
+          echo "=== LoadBalancer do ingress ==="
+          kubectl get svc -n ingress-nginx ingress-nginx-controller \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'; echo
+          echo "=== Hello Lambda URL ==="
+          (cd ../app-lambda && terraform output -raw hello_url); echo
