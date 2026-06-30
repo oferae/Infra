@@ -21,7 +21,7 @@ provider "aws" {
 
 variable "region" {
   type    = string
-  default = "eu-central-1"
+  default = "us-east-1"
 }
 
 # Empacota o handler em zip automaticamente.

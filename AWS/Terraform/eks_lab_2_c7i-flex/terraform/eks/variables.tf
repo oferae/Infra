@@ -1,6 +1,6 @@
 variable "region" {
   type    = string
-  default = "eu-central-1" # Frankfurt - perto de Hof
+  default = "us-east-1" # USA
 }
 
 variable "cluster_name" {
@@ -13,11 +13,20 @@ variable "cluster_version" {
   default = "1.30"
 }
 
-# Menores instâncias viáveis pro lab. t3.small = 2 vCPU / 2GB.
-# Se faltar memória pro ingress + datadog, suba pra t3.medium.
+# Conta Free Plan (criada após 15/jul/2025) só permite estes tipos:
+# t3.micro, t3.small, t4g.micro, t4g.small, c7i-flex.large, m7i-flex.large.
+# c7i-flex.large = 2 vCPU / 4GB. Elegível no Free Plan e suficiente pro lab.
+# Se faltar memória, m7i-flex.large (2 vCPU / 8GB) é a próxima opção elegível.
 variable "instance_types" {
   type    = list(string)
-  default = ["t3.small"]
+  default = ["c7i-flex.large"]
+}
+
+# Free Plan geralmente NÃO permite SPOT — use ON_DEMAND. Em conta paga,
+# SPOT derruba o custo, mas pode ser reclamada a qualquer momento.
+variable "capacity_type" {
+  type    = string
+  default = "ON_DEMAND"
 }
 
 variable "node_min" {
