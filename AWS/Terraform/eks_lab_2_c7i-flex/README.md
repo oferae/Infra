@@ -1,38 +1,38 @@
 # EKS Lab
 
-Lab AWS enxuto: cluster EKS com ingress + load balancing, agents Datadog, app que mostra o pod que respondeu, e um hello-world serverless. Tudo via Terraform + CI/CD (GitHub Actions ou Azure DevOps).
+Lean AWS Lab: EKS cluster with ingress + load balancing, Datadog agents, app that shows the pod that responded, and a serverless hello-world. All via Terraform + CI/CD (GitHub Actions or Azure DevOps).
 
-## O que sobe
+## What is build here:
 
-| Componente | Onde | O que faz |
+| Component | Where | What does |
 |---|---|---|
-| VPC + EKS (2–4 nós t3.small SPOT) | `terraform/eks` | cluster Kubernetes gerenciado |
-| ingress-nginx (ou traefik) | helm via TF | provisiona um NLB AWS automaticamente |
-| Datadog agent + cluster agent | helm via TF | métricas, logs e APM do cluster |
-| `whoami` (3 réplicas) | `k8s/whoami.yaml` | mostra hostname/IP do pod a cada refresh = vê o LB alternando |
-| hello-world | `terraform/app-lambda` | Lambda + API Gateway HTTP, retorna JSON |
+| VPC + EKS (2–4 nós t3.small SPOT) | `terraform/eks` | managed Kubernetes Cluster |
+| ingress-nginx (ou traefik) | helm via TF | provisioning an ALB Cluster directly |
+| Datadog agent + cluster agent | helm via TF | métrics, logs and APM from this cluster |
+| `whoami` (3 réplicas) | `k8s/whoami.yaml` | shows pod hostname/IP on each refresh = sees LB alternating there |
+| hello-world | `terraform/app-lambda` | Lambda + API Gateway HTTP, return a JSON |
 
-## Ordem de execução (manual)
+## Exec order (manual for deployment)
 
 ```bash
-# 0. credenciais AWS no ambiente + DATADOG_API_KEY
-export TF_VAR_datadog_api_key="sua-key-do-datadog-demo"
+# 0. credentials AWS (aws confugure, adn your IAM key) + DATADOG_API_KEY
+export TF_VAR_datadog_api_key="yourdatadogkey"
 
 # 1. cluster
 cd terraform/eks
 terraform init && terraform apply
 
-# 2. kubeconfig (output já te dá o comando pronto)
-aws eks update-kubeconfig --region eu-central-1 --name eks-lab
+# 2. kubeconfig output gives you the kubeconfig setup and accessing the cluster directly
+aws eks update-kubeconfig --region us-east-1 --name eks-lab
 
 # 3. app whoami
 kubectl apply -f ../../k8s/namespace.yaml
 kubectl apply -f ../../k8s/whoami.yaml
 
-# 4. pega o hostname do load balancer
+# 4. get the hostname of the load balancer
 kubectl get svc -n ingress-nginx ingress-nginx-controller \
   -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-# abre no browser e dá refresh: o campo "Hostname" muda entre os 3 pods
+# opens in the browser and refreshes: the "Hostname" field changes between the 3 pods
 
 # 5. serverless
 cd ../app-lambda
@@ -40,39 +40,39 @@ terraform init && terraform apply
 terraform output hello_url   # curl nessa URL
 ```
 
-No CI é a mesma sequência automatizada — veja `.github/workflows/deploy.yml` ou `azure-pipelines/`.
+In CI it's the same automated sequence — see `.github/workflows/deploy.yml` or `azure-pipelines/`.
 
 ## Lens / kubelens
 
-Depois do `update-kubeconfig`, o cluster já aparece no Lens automaticamente (ele lê o `~/.kube/config`). Se rodar o CI numa máquina diferente da sua, copie o contexto:
+After `update-kubeconfig`, the cluster already appears in Lens automatically (it reads `~/.kube/config`). If you run the CI on a machine other than yours, copy the context:
 
 ```bash
-aws eks update-kubeconfig --region eu-central-1 --name eks-lab
-# Lens > Catalog > o cluster "eks-lab" aparece. Ative os metrics do Lens
-# ou use os dados do Datadog que já estão sendo coletados.
+aws eks update-kubeconfig --region us-east-1 --name eks-lab
+# Lens > Catalog > o cluster "eks-lab" aparece. Enable Lens metrics
+# or use Datadog data that is already being collected.
 ```
 
 ## Datadog
 
-A API key vai como `TF_VAR_datadog_api_key` (env var / secret do CI), nunca commitada. O chart instala node agent (DaemonSet) + cluster agent, com logs e APM ligados. No Datadog demo: **Infrastructure > Kubernetes** e **Containers** já populam em poucos minutos.
+The API key goes like `TF_VAR_datadog_api_key` (env var / secret do CI), never commited. The chart installs node agent (DaemonSet) + cluster agent, with logs and APM connected. In the Datadog demo: **Infrastructure > Kubernetes** e **Containers** populate the info in few minutes...
 
-## Custos (atenção — é o ponto sensível do lab)
+## costs for the lab !!
 
 - **EKS control plane: ~US$ 0,10/h** (~US$ 73/mês) e roda mesmo sem nós. Não dá pra desligar sem `terraform destroy`.
-- 2× t3.small SPOT: centavos/hora.
-- NAT Gateway: ~US$ 0,045/h + tráfego — costuma ser o segundo maior custo.
-- 2× NLB (ingress): ~US$ 0,025/h cada.
+- 2× t3.medium cents/hour
+- NAT Gateway: ~US$ 0,045/h + trafic
+- 2× NLB (ingress): ~US$ 0,025/h each.
 
-**Sempre `terraform destroy` nos dois diretórios quando terminar a sessão.** Para um lab ligado só algumas horas o custo fica em poucos dólares; esquecer ligado o mês inteiro passa de US$ 100.
+**Dont forget `terraform destroy` on each directories eks/lambda when the session finishes.** For a lab that runs for just a few hours, the cost is just a few dollars; forgetting it turned on for the whole month costs more than US$ 100.
 
 ```bash
 cd terraform/eks && terraform destroy
 cd terraform/app-lambda && terraform destroy
 ```
 
-## Ajustes rápidos
+## Quick adjusts
 
-- Faltou memória (datadog + ingress comem RAM): troque `instance_types` pra `["t3.medium"]`.
-- Quer traefik: `terraform apply -var ingress_controller=traefik` (e ajuste o `ingressClassName` no whoami.yaml).
-- Sem Datadog: `-var enable_datadog=false`.
-- State remoto: descomente o bloco `backend "s3"` em `versions.tf` (essencial se o CI e você compartilham state).
+- Memory outage (datadog + ingress uses too much RAM): change `instance_types` to `["t3.large or xlarge"]`.
+- Want change traefik: `terraform apply -var ingress_controller=traefik` (and adjust the `ingressClassName` in whoami.yaml).
+- Disable Datadog: `-var enable_datadog=false`.
+- Remote state: uncomment the `backend "s3"` block in `versions.tf` (essential if the CI and you share state). or maybe you want versioning this guy to protect that.
